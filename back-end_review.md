@@ -151,6 +151,134 @@ ASSERT 只有在 Debug 版本中才有效，如果编译为 Release 版本则被
 
 
 
+### 10.负载均衡的几种方案
+
+​	轮询式、
+
+```c++
+vector<Server*> vecServer;
+while(1)
+{
+    Server* server = vecServer[curIndex % vecServer.size()];
+    curIndex ++;
+}
+```
+
+如上代码，一个简单的轮询式分配方法，这种方法简单，cpu计算少，缺点是无法动态判断server的状态，当一台server挂掉，会至少1/vecServer.size()的请求。这种分配方法有个bug,就是当每次请求结束就释放内存，那么curindex永远都是会是0，即每次请求第一个server.
+
+   定死权重式、
+
+这种方案适用于那种需要实现就规定后端server的权重，比如A比B server的响应速度快，我们希望A接受的请求比B多。
+
+```c++
+//假设A,B,C server权重分别为10 5 2
+typedef struct _serverinfo
+{
+	//server指针
+    Server *server;
+    //权重
+    int weight；
+
+}ServerInfo;
+vector<ServerInfo *> vecServer;
+vecServer.push_back(A);
+vecServer.push_back(B);
+vecServer.push_back(C);
+
+vector<int> vecWeight;
+for(unsigned i = 0; i<vecServer.size();i++)
+{
+    vecWeight.insert(vecWeight.end(),vecServer[i]->weight,i);
+    
+}
+while(1)
+{
+    index = vecWeight[random() % vecWeight.size()];
+    Server *server = vecServer[index].server;
+}
+```
+
+上面的代码比较好理解，一共有两个数组，一个是server信息数组vecServer,一个是权重数组vecWeight。在分配server时，先通过权重数组vecWeight获取到server信息数组的下标，然后分配server。
+
+这样做的cpu消耗也不高，但是缺点也是显而易见，就是还是没有办法动态调整权重，需要人为去修改。
+
+
+
+动态调整权重
+
+​	在讨论前，我们要明确几个希望使用它的原因：
+
+```
+1.我们希望server能够自动按照运行状态进行按照权重的选择
+2.我们不希望手工去配置权重变化
+```
+
+很显然，我们需要一个基准来告诉我们这台server是否正常。这个基准是什么，是历史累计的平均值。比如如果是按照响应时间分配权重 ，那么就是所有后端server历史积累的平均响应时间，如果是错误率也是如此。
+
+那么一旦调整了权重，我们什么时候来调整权重呢？调整比例是怎样的呢？按照我的经验，一般是隔一段固定时间才进行调整，如果正常但是权重过低，那么就按照20%的比例恢复；如果server不正常，那么直接按照当前server响应时间/历史平均响应时间进行降权。这里的逻辑之所以不一样是有原因的，因为服务出现问题的时候，我们能够知道这坏的程度有多少，就是当前server响应时间/历史平均响应时间进行降权；但是恢复的时候，你并不能保证server能够支撑多大的访问量，所以只能按照20%放量来试。也避免滚雪球效应的发生。
+
+```c++
+typedef struct _serverinfo
+{
+    unsigned _svr_ip;	//目标主机
+    float    _cfg_wt;   //配置的权重
+    float    _cur_wt;	//当前实际权重
+    int		 _req_count;//请求数
+    float    _rsp_time; //请求总响应时间
+    float    _rsp_avg_time;//请求平均响应时间
+    int      _rsp_error;	//请求错误数
+}ServerInfo;
+
+vector<ServerInfo *> vecServer;
+int total_rsp_time = 0;
+int total_req_count = 0;
+
+unsigned int comWeight = 100;
+unsigned int MaxWeight = 1000;
+while(1)
+{
+    //按照文中第二种方式进行server分配
+    serverInfo._req_count++;
+    serverInfo._rsp_time+=rsp_time;
+    
+    total_req_count++;
+    total_rsp_time += rsp_time;
+    
+    if(!需要重建权限)
+    {
+        continue；
+    }
+    
+    float total_rsp_avg_time = (float)total_rsp_time / (float)total_req_count;
+    for(vector<ServerInfo *>::iterator it = vecServer.begin();it!=vecServer.end();it++)
+    {
+        it->_rsp_avg_time = (float)it->_rsp_time / (float)it->_req_count;
+        if(it->_rsp_avg_time > total_rsp_time)
+        {
+            it->_cur_wt = int(comWeight*total_rsp_avg_time / it->_rsp_avg_time);
+        }
+        else
+        {
+            it->_cur_wt *= 1.2;
+        }
+        it->_cur_wt = it->_cur_wt < MaxWeight ? it->_cur_wt : MaxWeight;
+    }
+    //按照第二种方法重建权重数组
+}
+```
+
+
+
+
+
+### 11.分布式事务
+
+ 	 两阶段提交协议：第一个阶段，事务的发起方（协调者，只有一个）向所有参与者发送准备请求，事务的执行方（多个）进行资源检查，返回结果；若其中一个检查不通过，则事务进行终止；第二个阶段，协调者发起提交请求，参与者收到后，执行相应的提交操作。
+
+​     为了保证第二个阶段，参与者一定能提交成功，一般需要在第一个阶段进行资源检查后，锁定相应数据，称为资源锁定。
+
+
+
 
 
 数据结构
@@ -174,3 +302,6 @@ ASSERT 只有在 Debug 版本中才有效，如果编译为 Release 版本则被
 微服务
 
 处理问题的复盘总结（1.分析问题 2.定位排查问题能力。）
+
+
+
