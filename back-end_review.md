@@ -487,9 +487,19 @@ https://blog.csdn.net/woxiaohahaa/article/details/51498951
 
 
 
-数据库
+### 32.数据库
 
-中间件（Nginx、zookeeper、zeromq、libevent、libev）
+### 33.中间件（Nginx、zookeeper、zeromq、libevent、libev）
+
+nginx:多进程，master+work。
+
+zookeeper：分布式协调服务，包括服务注册发现，配置文件下发，分布式事务锁。节点叫做**Znode**，采用了**ZAB协议**，这种协议非常类似于一致性算法**Paxos**和**Raft**。
+
+kafka：分布式消息系统，主要用于分布式日志收集等，raft协议。
+
+etcd: 分布式高可用key-value数据库。用于服务发现，raft协议。，实现分布式系统数据的可用性和一致性。
+
+
 
 算法（分布式一致性hash）
 
